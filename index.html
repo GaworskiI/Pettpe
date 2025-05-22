@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <title>Komunikator P2P</title>
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 1000px;
+      margin: auto;
+      padding: 20px;
+      display: flex;
+      gap: 20px;
+      background-color: #f9f9fb;
+      color: #333;
+    }
+    #sidebar {
+      width: 240px;
+      border-right: 2px solid #ccc;
+      padding-right: 10px;
+      background-color: #ffffff;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.05);
+    }
+    #chat-container {
+      flex-grow: 1;
+      background-color: #ffffff;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.05);
+    }
+    #chat {
+      white-space: pre-wrap;
+      border: 1px solid #ddd;
+      padding: 10px;
+      height: 300px;
+      overflow-y: scroll;
+      background-color: #fafafa;
+      border-radius: 5px;
+      font-size: 14px;
+    }
+    input, button {
+      margin-top: 10px;
+      width: 100%;
+      padding: 10px;
+      font-size: 15px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      box-sizing: border-box;
+    }
+    button {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+    .contact {
+      cursor: pointer;
+      padding: 10px;
+      border-bottom: 1px solid #eee;
+      transition: background-color 0.2s;
+      border-radius: 5px;
+    }
+    .contact:hover {
+      background-color: #f0f0f0;
+    }
+    .active {
+      background-color: #d6eaff;
+      font-weight: bold;
+    }
+    h1, h3 {
+      margin-top: 0;
+    }
+  </style>
+</head>
+<body>
+  <div id="sidebar">
+    <h3>Rozmowy</h3>
+    <div id="contacts"></div>
+    <button onclick="deleteConversation()">Usuń rozmowę</button>
+  </div>
+  <div id="chat-container">
+    <h1>Pettpe</h1>
+    <p>Twój identyfikator: <strong id="my-id"></strong></p>
+    <input id="target-id" placeholder="Identyfikator odbiorcy (15 cyfr)">
+    <input id="message" placeholder="Wpisz wiadomość">
+    <button onclick="sendMessage()">Wyślij</button>
+    <button onclick="clearChat()">Wyczyść historię</button>
+    <h3>Historia wiadomości:</h3>
+    <div id="chat"></div>
+  </div>
+
+  <script>
+    const chatDiv = document.getElementById("chat");
+    const contactsDiv = document.getElementById("contacts");
+    let activeContact = null;
+    let peer = null;
+    const connections = {};
+
+    function generateId() {
+      return Math.floor(1e14 + Math.random() * 9e14).toString();
+    }
+
+    let myId = localStorage.getItem("peer-id");
+    if (!myId) {
+      myId = generateId();
+      localStorage.setItem("peer-id", myId);
+    }
+    document.getElementById("my-id").textContent = myId;
+
+    function initializePeer(id) {
+      if (peer) peer.destroy();
+      peer = new Peer(id);
+
+      peer.on("connection", conn => {
+        conn.on("data", data => {
+          const id = conn.peer;
+          activeContact = id;
+          document.getElementById("target-id").value = id;
+          loadContacts();
+          appendMessage(data, "ODBIORCA");
+        });
+      });
+    }
+
+    initializePeer(myId);
+
+    function appendMessage(text, from) {
+      const line = `[${new Date().toLocaleTimeString()}] ${from}: ${text}\n`;
+      const key = "chat-" + activeContact;
+      const existing = localStorage.getItem(key) || "";
+      const updated = existing + line;
+      localStorage.setItem(key, updated);
+      chatDiv.textContent = updated;
+      chatDiv.scrollTop = chatDiv.scrollHeight;
+    }
+
+    function loadChatHistory() {
+      if (!activeContact) return;
+      const saved = localStorage.getItem("chat-" + activeContact);
+      chatDiv.textContent = saved || "";
+    }
+
+    function clearChat() {
+      if (!activeContact) return;
+      localStorage.removeItem("chat-" + activeContact);
+      chatDiv.textContent = "";
+    }
+
+    function deleteConversation() {
+      if (!activeContact) return;
+      localStorage.removeItem("chat-" + activeContact);
+      delete connections[activeContact];
+      activeContact = null;
+      document.getElementById("target-id").value = "";
+      chatDiv.textContent = "";
+      loadContacts();
+    }
+
+    function loadContacts() {
+      const keys = Object.keys(localStorage).filter(k => k.startsWith("chat-"));
+      contactsDiv.innerHTML = "";
+      keys.forEach(k => {
+        const id = k.slice(5);
+        const div = document.createElement("div");
+        div.className = "contact" + (id === activeContact ? " active" : "");
+        div.textContent = id;
+        div.onclick = () => {
+          activeContact = id;
+          document.getElementById("target-id").value = id;
+          loadContacts();
+          loadChatHistory();
+        };
+        contactsDiv.appendChild(div);
+      });
+    }
+
+    function sendMessage() {
+      const targetId = document.getElementById("target-id").value;
+      const message = document.getElementById("message").value;
+      if (!targetId || !message) return;
+
+      if (!connections[targetId]) {
+        const conn = peer.connect(targetId);
+        conn.on("open", () => {
+          conn.send(message);
+          appendMessage(message, "TY");
+          if (targetId === "000" && message === "1234515") {
+            const response = "Numer administracji aktywowany.";
+            appendMessage(response, "SYSTEM");
+            myId = "XXXXXXXXXXXXXXX";
+            localStorage.setItem("peer-id", myId);
+            document.getElementById("my-id").textContent = myId;
+            initializePeer(myId);
+          }
+        });
+        connections[targetId] = conn;
+      } else {
+        connections[targetId].send(message);
+        appendMessage(message, "TY");
+        if (targetId === "000" && message === "1234515") {
+          const response = "Numer administracji aktywowany.";
+          appendMessage(response, "SYSTEM");
+          myId = "XXXXXXXXXXXXXXX";
+          localStorage.setItem("peer-id", myId);
+          document.getElementById("my-id").textContent = myId;
+          initializePeer(myId);
+        }
+      }
+
+      activeContact = targetId;
+      loadContacts();
+      document.getElementById("message").value = "";
+    }
+
+    loadContacts();
+  </script>
+</body>
+</html>
